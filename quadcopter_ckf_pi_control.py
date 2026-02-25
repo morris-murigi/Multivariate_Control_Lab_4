@@ -40,24 +40,24 @@ class QuadcopterCKFPIControl:
         
         # PI Controller gains (to be tuned)
         # Attitude controllers
-        self.Kp_roll = 1.0
-        self.Ki_roll = 0.2
-        self.Kp_pitch = 1.0
-        self.Ki_pitch = 0.2
-        self.Kp_yaw = 0.5
-        self.Ki_yaw = 0.1
+        self.Kp_roll = 15.0
+        self.Ki_roll = 5.0
+        self.Kp_pitch = 15.0
+        self.Ki_pitch = 5.0
+        self.Kp_yaw = 5.0
+        self.Ki_yaw = 1.0
         
         # Altitude controller
-        self.Kp_alt = 1.5
-        self.Ki_alt = 0.3
+        self.Kp_alt = 8.0
+        self.Ki_alt = 1.0
         
         # Velocity controller
         self.K_vel = 0.5
         
         # CKF parameters
-        self.Q = np.eye(20) * 0.001  # Process noise covariance
-        self.R_ckf = np.diag([0.001, 0.001, 0.001, 0.001])  # Measurement noise covariance
-        self.P = np.eye(20) * 0.01  # Initial state covariance
+        self.Q = np.eye(20) * 0.01  # Process noise covariance
+        self.R_ckf = np.diag([0.01, 0.01, 0.01, 0.01])  # Measurement noise covariance
+        self.P = np.eye(20) * 0.1  # Initial state covariance
         
         # Initialize state
         self.reset_state()
@@ -194,14 +194,30 @@ class QuadcopterCKFPIControl:
         dt = self.Ts
         propagated_points = np.zeros_like(points)
         for j in range(2*n):
-            # Apply control inputs - for simplicity we'll use hover voltages
+            # Use actual control inputs for propagation
+            # For now, we will use the same control for all points as an approximation
+            # In a real implementation, we would have the control based on each state
+            u_actual = np.ones(4) * 12.0  # Placeholder - in reality this would depend on the specific state
             u_hover = np.ones(4) * 12.0  # Nominal voltage
             propagated_points[:, j] = self.forward_euler_step(points[:, j], u_hover, dt)
         
         # Compute predicted mean
         x_pred = np.mean(propagated_points, axis=1)
-        
+        # Ensure P_pred remains positive definite and symmetric
+        # Ensure P_pred remains positive definite and symmetric
+        P_pred = (P_pred + P_pred.T) / 2.0
+        eigenvals = np.linalg.eigvals(P_pred)
+        if np.any(eigenvals <= 0):
+            P_pred += np.eye(n) * 0.001  # Add small positive value to diagonal
+        P_pred = (P_pred + P_pred.T) / 2.0
+        eigenvals = np.linalg.eigvals(P_pred)
+        if np.any(eigenvals <= 0):
         # Compute predicted covariance
+        # Ensure P_pred remains positive definite and symmetric
+        P_pred = (P_pred + P_pred.T) / 2.0
+        eigenvals = np.linalg.eigvals(P_pred)
+        if np.any(eigenvals <= 0):
+            P_pred += np.eye(n) * 0.001  # Add small positive value to diagonal
         diff = propagated_points - x_pred[:, np.newaxis]
         P_pred = diff @ diff.T / (2*n) + Q
         
@@ -282,46 +298,37 @@ class QuadcopterCKFPIControl:
         # [tx] =  [0  l/√2  0  -kq] [V2]
         # [ty]    [0  l/√2 -kq  0] [V3]
         # [tz]    [0   0   kq  -kq] [V4]
-        
-        # Simplified approach: distribute thrust equally and add differential control
-        base_voltage = 12.0  # Base voltage for hover
-        
+
         # Calculate required motor forces based on thrust and torques
         # For X-configuration quadcopter
         # The control allocation matrix maps desired forces/torques to motor commands
-        # Using inverse of the allocation matrix
-        
-        # Normalize torques relative to thrust to avoid conflicts
-        # Scale torques based on how much thrust is available beyond hover
-        thrust_hover = self.m * self.g
-        thrust_excess = max(thrust_cmd - thrust_hover, 0.1 * thrust_hover)  # Ensure minimum thrust
-        
-        # Scale torques based on excess thrust capability
-        scale_factor = min(thrust_excess / (0.5 * thrust_hover), 1.0)
-        tau_x_scaled = tau_x * scale_factor
-        tau_y_scaled = tau_y * scale_factor
-        tau_z_scaled = tau_z * scale_factor
-        
-        # Motor allocation for X-configuration
-        # [F1]     [1   0   -l/√2   -1/k_m]   [T]
-        # [F2]  =  [1  l/√2   0     1/k_m]   [τx]
-        # [F3]     [1   0   l/√2    -1/k_m]   [τy]
-        # [F4]     [1  -l/√2  0     1/k_m]   [τz]
-        
+
+        # Normalize control efforts to prevent actuator saturation
+        max_thrust_total = 4.0 * self.m * self.g  # 4x hover thrust total
+        max_tau_x = max_thrust_total * self.l / 2  # Maximum possible torque around x
+        max_tau_y = max_thrust_total * self.l / 2  # Maximum possible torque around y
+        max_tau_z = max_thrust_total * 0.1  # Maximum possible torque around z (based on drag)
+
+        tau_x_clipped = np.clip(tau_x, -max_tau_x, max_tau_x)
+        tau_y_clipped = np.clip(tau_y, -max_tau_y, max_tau_y)
+        tau_z_clipped = np.clip(tau_z, -max_tau_z, max_tau_z)
+
         F_desired = np.array([
-            thrust_cmd/4 - tau_x_scaled/(2*np.sqrt(2)*self.l) - tau_y_scaled/(2*self.l) + tau_z_scaled/4,
-            thrust_cmd/4 + tau_x_scaled/(2*np.sqrt(2)*self.l) - tau_y_scaled/(2*self.l) - tau_z_scaled/4,
-            thrust_cmd/4 + tau_x_scaled/(2*np.sqrt(2)*self.l) + tau_y_scaled/(2*self.l) + tau_z_scaled/4,
-            thrust_cmd/4 - tau_x_scaled/(2*np.sqrt(2)*self.l) + tau_y_scaled/(2*self.l) - tau_z_scaled/4
+            thrust_cmd/4 - tau_x_clipped/(2*np.sqrt(2)*self.l) - tau_y_clipped/(2*self.l) + tau_z_clipped/4,
+            thrust_cmd/4 + tau_x_clipped/(2*np.sqrt(2)*self.l) - tau_y_clipped/(2*self.l) - tau_z_clipped/4,
+            thrust_cmd/4 + tau_x_clipped/(2*np.sqrt(2)*self.l) + tau_y_clipped/(2*self.l) + tau_z_clipped/4,
+            thrust_cmd/4 - tau_x_clipped/(2*np.sqrt(2)*self.l) + tau_y_clipped/(2*self.l) - tau_z_clipped/4
         ])
-        
-        # Ensure all motor forces are positive
-        F_desired = np.maximum(F_desired, 0.1 * self.m * self.g / 4)  # Minimum 10% hover force per motor
-        
+
+        # Ensure all motor forces are positive and within safe bounds
+        F_min = 0.05 * self.m * self.g / 4  # Minimum 5% hover force per motor
+        F_max = 1.5 * self.m * self.g / 4   # Maximum 150% hover force per motor
+        F_desired = np.clip(F_desired, F_min, F_max)
+
         # Convert forces to required motor speeds
         w_required = np.sqrt(F_desired / self.k_thrust)
-        w_required = np.clip(w_required, 0, 800)  # Max speed limit
-        
+        w_required = np.clip(w_required, 0, 600)  # Max speed limit
+
         # Calculate required voltages to achieve desired speeds
         voltages = np.zeros(4)
         for i in range(4):
@@ -330,8 +337,11 @@ class QuadcopterCKFPIControl:
             # And V = R*(bm*w + k_drag*w^2)/kt + kb*w
             req_current = (self.bm * w_required[i] + self.k_drag * w_required[i]**2) / self.kt
             voltages[i] = self.R * req_current + self.kb * w_required[i]
-        
+
         # Apply voltage limits
+        voltages = np.clip(voltages, 0, 12.0)
+
+        return voltages
         voltages = np.clip(voltages, 0, 12.0)
         
         return voltages
