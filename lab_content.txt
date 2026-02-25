@@ -1,0 +1,342 @@
+              SCHOOL OF COMPUTING AND ENGINEERING SCIENCES
+       BACHELOR OF SCIENCE IN ELECTRICAL AND ELECTRONICS ENGINEERING
+                            2nd SEMESTER 2025/2026
+                       BEE 5214: Multivariate Control Lab_4
+
+DATE: February, 2026
+
+1. Title:
+Simulation and practical implementation of CKF + PI Control of a Quadcopter (X
+Configuration)
+2. Objective:
+2.1 Implement the quadcopter digitized EOM and allocator for quadcopter X
+    configuration.
+2.2 Use fixed step forward Euler to simulate CKF + PI controller for (i) altitude-only
+    hover and (ii) cascaded altitude + attitude for the quadcopter.
+2.3 Implement fixed step forward Euler CKF + PI controller for (i) altitude-only hover
+    and (ii) cascaded altitude + attitude for the quadcopter.
+3. Learning Outcomes:
+By completing this laboratory, students will be able to:
+3.1 Build body/world dynamics and the mixer 𝐴! from geometry.
+3.2 Assemble an X quadcopter
+3.3 Simulate attitude CKF + PI loops with anti-windup and saturation
+3.4 Simulate attitude and altitude CKF + PI loops with anti-windup and saturation
+3.5 Understand bandwidth separation between inner attitude and outer altitude loops for
+    the quadcopter.
+3.6 Implement attitude CKF + PI loops with anti-windup and saturation
+4.0 Homework
+
+  Print the quadcopter motor mounting chassis and arms and assemble the quadcopter as
+  shown in Fig. 4.2.
+
+
+
+                                         Page 1 of 8
+      Quadcopter (X)
+
+
+
+
+              Fig. 4.1 Quadcopter geometry
+
+
+
+
+                              Fig. 4.2 X Quadcopter assembly
+                                                                                              60 Marks
+4.1   X Quadcopter EOM
+
+      Flying Car (Drone) X Configuration
+      Body Frame - Refer to Fig. 4.1
+      • 𝑥          → East         𝑦 → North                   𝑧 → Up
+      • Roll about 𝑥              Pitch about 𝑦               Yaw about 𝑧
+
+      Rigid body states
+      Position (3) [𝑥, 𝑦, 𝑧]          Velocity (3)            (𝑣! , 𝑣" , 𝑣# *
+
+      Motor
+      Motor Input Voltages (4) [𝑉$ , 𝑉% , 𝑉& , 𝑉' ] Motor Currents (4) [𝑖$ , 𝑖% , 𝑖& , 𝑖' ]
+      Motor Speeds (4) [𝜔$ , 𝜔% , 𝜔& , 𝜔' ]
+
+                                                Page 2 of 8
+  Flying Car (Drone) Model Parameters and Difference Equations
+  Drone mass M
+  Motor constants Jm bm, kt, kb, L, R, τ
+  Drone angular momentum in x, y, z reference frame Ix (roll) Iy (pitch) Iz (Yaw)
+  Drone velocity damping coefficeints in x, y, z reference frame kdx , kdy , kdz
+  Drone propeller viscous damping coefficients kθ, kφ, kψ
+  The drone assembly shown in Fig. 4.2 may have upto 24 state variables;
+    (i)  Drone position and velocity in x, y, z coordinates - 6 state variables,
+   (ii)  Drone angular position and speed in x, y and z axis – 6 state variables
+  (iii)  Drone motor input voltage, current, propeller speed
+         - 3 state variables for each motor making a total of 12 state variables for 4 motors.
+
+
+Motor M1 /Propeller Parameters                               Motor M1 /Propeller Parameters
+𝑅( Winding resstance           0.1Ω                          CTi Propeller thrust constant
+𝐿( Winding inductance          0.002Η                        CQi Propeller drag constant
+𝑘-( Back EMF Constant          0.01 Vs/rad                   Ri Propeller radius
+𝑘,( Torque Constant            0.01 N/A                      Ai = π𝑅(% = Propeller disc area
+𝑏.( Motor damping coefficient. 0.00009Ns/rad                 ρ Air density
+𝐽.( Motor/Propeller inertia    0.0004 kgm2                   l Drone arm                   0.1m
+𝑘/( Propeller aerodynamic drag 0.000002 Ns2/rad2             Varibles
+      coefficient = CQ1ρA1𝑅$&                                𝑖$ Motor current.              20A (Max)
+𝑘 0( Propeller trust           0.000018 Ns2/rad2             𝜔( Propeller speed
+     coefficient = CTiρAi𝑅(%                                 𝑉( Input voltage              12V (Max)
+kdx = kdy Velocity damping     0.15 Ns/m                     m Drone mass                  1.5 kg
+kdz Velocity damping           0.25 Ns/m                     Ix = Iy                       0.02 kgm2
+kθ = kφ Viscous damping        0.002 Ns/rad                  Iz Angular momentum           0.04 kgm2
+kψ Viscous damping             0.003                         Ts Sampling time              0.004s
+                                                             g Gravity acceleration        9.81 ms-2
+
+
+  Motor Electrical Dynamics
+     )*̇
+  𝐿( ),! = −𝑅( 𝑖( − 𝑘-( 𝜔( + 𝑉(
+  Motor Mechanical Dynamics
+  𝐽.( 𝜔̇ ( = 𝑘,( 𝑖( − 𝑏.( 𝜔( − 𝑘/( 𝜔(%
+
+  Thrust and Torques
+                 '
+
+          𝑇 = 9 𝑘 0( 𝜔(%
+               (1$
+
+  X-configuration torques:
+                𝑙
+         𝜏2 =     (𝑘 0% 𝜔%% + 𝑘 0& 𝜔&% − 𝑘 0$ 𝜔$% − 𝑘 0' 𝜔'% )
+               √2
+                𝑙
+         𝜏3 =     (𝑘 0$ 𝜔$% + 𝑘 0% 𝜔%% − 𝑘 0& 𝜔&% − 𝑘 0% 𝜔'% )
+              √2
+         𝜏4 = 𝑘/$ 𝜔$% − 𝑘/% 𝜔%% + 𝑘/& 𝜔&% − 𝑘/' 𝜔'%
+
+  Translational Dynamics   𝑥̇ = 𝑣!       𝑦̇ = 𝑣"                          𝑧̇ = 𝑣#
+        𝑚𝑣̇! = 𝑇(cos𝜙sin𝜃cos𝜓 + sin𝜙sin𝜓) − 𝑘)! 𝑣!
+        𝑚𝑣̇" = 𝑇(cos𝜙sin𝜃sin𝜓 − sin𝜙cos𝜓) − 𝑘)" 𝑣"
+        𝑚𝑣̇# = 𝑇(cos𝜙cos𝜃) − 𝑚𝑔 − 𝑘)# 𝑣#
+
+                                             Page 3 of 8
+      Rotational Dynamics (gyroscopic)
+                   𝐼! 𝑝̇ = 𝜏2 + L𝐼" − 𝐼# M𝑞𝑟 - kφp
+                   𝐼" 𝑞̇ = 𝜏3 + (𝐼# − 𝐼! )𝑝𝑟 - kθq
+                   𝐼# 𝑟̇ = 𝜏4 + L𝐼! − 𝐼" M𝑝𝑞 – kψ r
+
+      Euler Kinematics
+                  𝜙̇ = 𝑝 + 𝑞sin𝜙tan𝜃 + 𝑟cos𝜙tan𝜃
+
+                      𝜃̇ = 𝑞cos𝜙 − 𝑟sin𝜙
+
+                           67892:;<=72
+                      𝜓̇ =     <=73
+
+
+      Hover equilibrium:       𝜙 = 𝜃 = 0 𝑝 = 𝑞 = 𝑟 = 0 𝑣! = 𝑣" = 𝑣# = 0. 𝜔( = 𝜔> (hover speed)
+                                                                               $    .?
+      Hover condition:                     4𝑘 0 𝜔>% = 𝑚𝑔                𝜔> = % U @
+                                                                                      "
+
+      State vector:
+                                                                                                           0
+                      𝑋 = (𝑖$ , 𝑖% , 𝑖& , 𝑖' , 𝜔$ , 𝜔% , 𝜔& , 𝜔' , 𝑥, 𝑦, 𝑧, 𝑣! , 𝑣" , 𝑣# , 𝜙, 𝜃, 𝜓, 𝑝, 𝑞, 𝑟*
+
+      Control inputs (Motor voltages):
+                   𝑈 = [𝑉$ , 𝑉% , 𝑉% , 𝑉% ]0
+
+4.2   Forward Euler Discretization
+      Motor Dynamics
+      Electrical:
+                                 𝑇B
+                  𝑖(,@:$ = 𝑖(,@ + L−𝑅( 𝑖(,@ − 𝑘-( 𝜔(,@ + 𝑉(,@ M
+                                 𝐿(
+
+      Mechanical:
+                                             𝑇B                             %
+                      𝜔(,@:$ = 𝜔(,@ +           L𝑘,( 𝑖(,@ − 𝑏.( 𝜔(,@ − 𝑘/( 𝜔(,@ M
+                                            𝐽.(
+
+      Translational Dynamics
+                                      𝑇B
+                      𝑣!,@:$ = 𝑣!,@ +    (𝑇 (cos𝜙@ sin𝜃@ cos𝜓@ + sin𝜙@ sin𝜓@ ) − 𝑘)! 𝑣!,@ *
+                                      𝑚 @
+                                      0
+                      𝑣",@:$ = 𝑣",@ + .# (𝑇@ (cos𝜙@ sin𝜃@ sin𝜓@ − sin𝜙@ cos𝜓@ ) − 𝑘)" 𝑣",@ *
+                                     𝑇B
+                      𝑣#,@:$ = 𝑣#,@ + (𝑇@ (cos𝜙@ cos𝜃@ ) − 𝑚𝑔 − 𝑘)# 𝑣#,@ *
+                                     𝑚
+
+      Position update:
+                   𝑥@:$ = 𝑥@ + 𝑇B 𝑣!,@ , 𝑦@:$ = 𝑦@ + 𝑇B 𝑣",@ , 𝑧@:$ = 𝑧@ + 𝑇B 𝑣#,@
+
+      Body Rotational Dynamics
+                               0
+                   𝑝@:$ = 𝑝@ + C # (𝜏2,@ + L𝐼" − 𝐼# M𝑞@ 𝑟@ * - kφ 𝑝@
+                                        $
+                                       0
+                      𝑞@:$ = 𝑞@ + C # (𝜏D,@ + (𝐼# − 𝐼! )𝑝@ 𝑟@ * - kθ 𝑞@
+                                        %
+                                      0#
+                      𝑟@:$ = 𝑟@ + C (𝜏E,@ + L𝐼! − 𝐼" M𝑝@ 𝑞@ * - kψ 𝑟@
+                                       &
+
+
+
+
+                                                      Page 4 of 8
+      Euler Angle Kinematics
+                   𝜙@:$ = 𝜙@ + 𝑇B [𝑝@ + 𝑞@ sin𝜙@ tan𝜃@ + 𝑟@ cos𝜙@ tan𝜃@ ]
+
+                     𝜃@:$ = 𝜃@ + 𝑇B [𝑞@ cos𝜙@ − 𝑟sin𝜙@ ]
+
+                                       6 7892' :;<=72'
+                     ψ@:$ = ψ@ + 𝑇B Y '    <=73'
+                                                         Z
+
+
+
+4.3   Write Python code to simulate and plot CKF-PI Altitude/Hover
+
+      Initial Conditions:
+      All states initialized to zero
+      Motors initialized to hover speed:
+
+                     1 𝑚𝑔
+             𝜔" =     &
+                     2 𝑘#
+
+             𝜔" > 450 rad/s
+      Total Thrust
+                     %
+                         *
+             𝑇$ = + 𝑘 # 𝜔&,$
+                    &'(
+
+      PI Attitude Control
+             𝑢+ = 𝐾,+ 𝑒+ + 𝐾&+ ∫ 𝑒+ 𝑑𝑡
+
+             𝑢- = 𝐾,- 𝑒- + 𝐾&- ∫ 𝑒- 𝑑𝑡
+
+             𝑢. = 𝐾,. 𝑒. + 𝐾&. ∫ 𝑒. 𝑑𝑡
+      Where:
+             𝑒+ = 𝜙/01 − 𝜙5
+
+             CKF-estimated states are used.
+      Motor Voltage Mixing (X Configuration)
+                                    𝑉(                   𝑢+
+                                    𝑉                    𝑢-
+                               𝐕 = 7 * 9 = 𝑉"340/ + 𝑀5( 7𝑢 9
+                                    𝑉2                    .
+                                    𝑉%                    0
+
+
+
+
+                                             Page 5 of 8
+        Cubature Kalman Filter (CKF)
+        State Model
+                         𝑥$6( = 𝑓 (𝑥$ , 𝑢$ ) + 𝑤$
+        Measurement Model
+                         𝑦$ = [𝑧    𝜙     𝜃    𝜓]# + 𝑣$
+        CKF Algorithm
+        For 𝑛 states:
+        (i)        Generate 2𝑛 cubature points:
+                   𝜉& = √𝑛 𝑒&
+        (iii)      Time update:
+                o Propagate cubature points through nonlinear dynamics.
+                o Compute predicted mean and covariance.
+        (iv)       Measurement update:
+         (v)       Propagate cubature points through measurement equation.
+        (vi)       Compute Kalman gain.
+
+      Required Plots
+
+        (i)       Motor voltages 𝑉( –𝑉%
+
+        (ii)      Motor currents 𝑖( –𝑖%
+
+       (iii)      Propeller speeds 𝜔( –𝜔%
+
+       (iv)       Height 𝑧(𝑡)
+
+        (v)       Roll, pitch, yaw response
+                                                                             40 Marks
+
+4.4     Write Python to simulate CKF + PI Attitude + Altitude Control with velocity
+        (𝒗𝒙 )
+        Altitude PI Controller
+                   𝑢8 = 𝐾,8 𝑒8 + 𝐾&8 ∫ 𝑒8 𝑑𝑡
+                   𝑒8 = 𝑧/01 − 𝑧̂
+
+
+
+
+                                                 Page 6 of 8
+        Thrust Command
+                  𝑇9:; = 𝑚𝑔 + 𝑢8
+                  Desired hover speed:
+
+                          𝑇9:;
+                  𝜔9:; = &
+                           4𝑘 #
+
+                  Forward Velocity Generation
+                  𝜃/01 = 𝐾4 Q𝑣<,/01 − 𝑣R< S
+        Cascaded control structure:
+                Altitude → Thrust → Velocity → Pitch → Torque → Motor Voltages
+
+      Required Plots
+        (i)       Motor voltages
+        (ii)      Motor currents
+        (iii)     Propeller speeds
+        (iv)      Height 𝑧(𝑡)
+        (v)       Forward velocity 𝑣< (𝑡)
+        (vi)      Pitch angle response
+
+              Tune attitude and altitude PI controller gains to achieve
+               Performance Metric          Requirement
+               Height overshoot              < 10%
+               Settling time               <3s
+               Forward velocity tracking < 5% error
+               Attitude steady state error    ≈0
+
+                                                                              50 Marks
+5       Practical
+
+5.1     Implement the CKF-PI Altitude/Hover Controller
+
+        Convert the and run the Python code written in 4.3 with actual propeller speed
+        measurement on the drone assembled in 4.0 and shown in Fig. 4.2
+        Take a video of your drone hovering.
+
+
+                                              Page 7 of 8
+                                                                                            40 Marks
+
+6. Lab Report                                                                               20 Marks
+
+6.1      Use these guidelines
+         https://drive.google.com/drive/u/2/folders/11saKDjuLBwEa5uQg5ynakZ3JinBQyGKl
+         to write and upload your individual lab report detailing your journey through items 1 to 6.
+
+6.2.1 Questions
+
+         (i)     Why is CKF preferred over EKF for this system
+
+         (ii)    What happens if motor dynamics are ignored?
+
+         (iii)   How does Euler discretization affect stability?
+
+         (iv)    What happens if sampling time increases?
+
+References
+
+      1. S. Skogestad and I. Postlethwaite, Multivariable Feedback Control: Analysis and Design, 2nd
+         ed., Wiley.
+      2. K. J. Åström and R. M. Murray, Feedback Systems: An Introduction for Scientists and Engi-
+         neers, Princet
+
+
+
+
+                                                 Page 8 of 8
+
